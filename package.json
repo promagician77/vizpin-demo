@@ -1,0 +1,10 @@
+{
+  "name": "msrp-only",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A working model of the VIZpin quoting tool: internal quote screen, the partner-cost leak problem, pricing rules, workbook audit and milestones.",
+  "scripts": {
+    "dev": "node init && npx --yes serve . -l 3000",
+    "start": "node init && npx --yes serve . -l 3000"
+  }
+}

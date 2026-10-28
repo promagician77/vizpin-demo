@@ -1,0 +1,675 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>MSRP Only</title>
+  <meta name="description" content="A working model of the VIZpin quoting tool: the internal quote screen with partner cost and MSRP, why keeping partner cost out of customer PDFs is architectural rather than cosmetic, the admin-editable pricing rules, the spreadsheet inconsistencies to resolve first, and a milestoned fixed price.">
+  <meta name="robots" content="noindex">
+
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="MSRP Only">
+  <meta property="og:description" content="A working model of the VIZpin quoting tool: the internal quote screen with partner cost and MSRP, why keeping partner cost out of customer PDFs is architectural rather than cosmetic, the admin-editable pricing rules, the spreadsheet inconsistencies to resolve first, and a milestoned fixed price.">
+  <meta name="twitter:card" content="summary">
+
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232E5BBA'/%3E%3Cg stroke='white' stroke-width='2.2' stroke-linecap='round'%3E%3Cpath d='M9 10h14'/%3E%3Cpath d='M9 16h14'/%3E%3Cpath d='M9 22h8'/%3E%3C/g%3E%3C/svg%3E">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+  <style>
+    /* Document skeleton. The artifact runtime supplies these; a standalone
+       deploy declares them itself. [hidden] is load-bearing: the tab panels
+       are toggled with el.hidden. */
+    :root{
+      color-scheme: light;
+      padding-top: env(safe-area-inset-top, 0px);
+      padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+    html{ -webkit-text-size-adjust: 100%; }
+    body{ margin: 0; }
+    img{ max-width: 100%; }
+    [hidden]{ display: none !important; }
+  </style>
+  <style>
+/* Layout: an internal business tool. Amber marks every figure that must never
+   reach a customer, so the requirement is visible in the interface itself. */
+:root{
+  --paper:#F3F4F6; --surface:#FFFFFF; --sunk:#E8EAEE;
+  --ink:#15181D; --dim:#565C66; --faint:#878D99;
+  --line:#DDE0E6; --line2:#C2C7D0;
+  --accent:#1B4D7E; --accent-lt:#4E82B5;
+  --internal:#B4531A;                 /* partner cost: never leaves the building */
+  --ok:#1F7A4D; --warn:#9A6B12; --bad:#B03030;
+
+  --body:'IBM Plex Sans','Helvetica Neue',Helvetica,Arial,sans-serif;
+  --mono:'IBM Plex Mono',ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){ :root:not([data-theme="light"]){
+  --paper:#0E1013; --surface:#171A1F; --sunk:#121419;
+  --ink:#ECEEF2; --dim:#9BA2AD; --faint:#6B7280;
+  --line:#262A31; --line2:#383D46;
+  --accent:#6FA3D6; --accent-lt:#9CC2E6; --internal:#E08A4A;
+  --ok:#42B07B; --warn:#D3A33F; --bad:#E06A6A;
+  color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --paper:#0E1013; --surface:#171A1F; --sunk:#121419;
+  --ink:#ECEEF2; --dim:#9BA2AD; --faint:#6B7280;
+  --line:#262A31; --line2:#383D46;
+  --accent:#6FA3D6; --accent-lt:#9CC2E6; --internal:#E08A4A;
+  --ok:#42B07B; --warn:#D3A33F; --bad:#E06A6A;
+  color-scheme:dark;
+}
+
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--body);
+  font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:20;background:var(--surface)}
+.wrap{max-width:1180px;margin:0 auto;
+  padding-left:max(16px,env(safe-area-inset-left,0px));
+  padding-right:max(16px,env(safe-area-inset-right,0px))}
+
+.masthead{position:sticky;top:env(safe-area-inset-top,0px);z-index:19;background:var(--surface);border-bottom:1px solid var(--line)}
+.mast-in{display:flex;align-items:center;gap:13px;padding-block:13px;flex-wrap:wrap}
+.brand{font-weight:700;font-size:18px;margin:0;letter-spacing:-.015em}
+.brand span{color:var(--internal)}
+.tagline{font-family:var(--mono);font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--faint)}
+.mast-right{margin-left:auto;display:flex;align-items:center;gap:9px}
+.qno{font-family:var(--mono);font-size:11.5px;background:var(--sunk);border:1px solid var(--line);
+  border-radius:6px;padding:5px 11px}
+.qno b{color:var(--accent);font-weight:600}
+.tbtn{font-size:12.5px;font-weight:500;background:var(--sunk);color:var(--dim);
+  border:1px solid var(--line);border-radius:7px;padding:6px 12px;cursor:pointer;font-family:inherit}
+.tbtn:hover{color:var(--ink);border-color:var(--line2)}
+
+.rail{display:flex;overflow-x:auto;border-bottom:1px solid var(--line);background:var(--surface);
+  position:sticky;top:calc(env(safe-area-inset-top,0px) + 55px);z-index:18}
+.rail-in{display:flex;gap:2px}
+.tab{appearance:none;background:none;border:0;border-bottom:3px solid transparent;cursor:pointer;
+  padding:12px 15px 9px;font-family:inherit;font-size:13.5px;font-weight:500;color:var(--dim);white-space:nowrap}
+.tab:hover{color:var(--ink)}
+.tab[aria-selected="true"]{color:var(--accent);border-bottom-color:var(--accent);font-weight:600}
+.tab em{font-family:var(--mono);font-style:normal;font-size:9.5px;color:var(--faint);margin-left:6px;vertical-align:1px}
+
+main{padding-block:26px 40px}
+.lede{max-width:66ch;margin:0 0 20px}
+.lede h2{font-size:clamp(22px,3.6vw,31px);font-weight:700;letter-spacing:-.025em;line-height:1.15;margin:0 0 9px;text-wrap:balance}
+.lede p{margin:0;color:var(--dim);font-size:14.5px}
+
+.note{display:flex;gap:11px;background:var(--surface);border:1px solid var(--line);
+  border-left:3px solid var(--warn);border-radius:7px;padding:12px 15px;margin-bottom:20px;font-size:13.5px}
+.note.good{border-left-color:var(--ok)} .note.bad{border-left-color:var(--bad)}
+.note.int{border-left-color:var(--internal)}
+.note strong{color:var(--warn);font-weight:600;white-space:nowrap}
+.note.good strong{color:var(--ok)} .note.bad strong{color:var(--bad)} .note.int strong{color:var(--internal)}
+.note p{margin:0;color:var(--dim)}
+
+.lab{display:grid;grid-template-columns:300px minmax(0,1fr);gap:20px;align-items:start}
+@media (max-width:900px){ .lab{grid-template-columns:1fr} }
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:16px}
+.panel h3,.stage-h h3{font-family:var(--mono);font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--faint);font-weight:500;margin:0 0 12px}
+.ctl{margin-bottom:13px}.ctl:last-child{margin-bottom:0}
+.ctl-h{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:5px;gap:10px}
+.ctl-h label{font-size:12.5px;font-weight:500}
+.ctl-h output{font-family:var(--mono);font-size:11.5px;color:var(--accent);font-weight:600}
+input[type=range]{width:100%;accent-color:var(--accent);margin:0}
+select,input[type=text]{width:100%;font-family:inherit;font-size:13px;padding:7px 9px;border-radius:7px;
+  border:1px solid var(--line);background:var(--sunk);color:var(--ink)}
+.seg{display:flex;border:1px solid var(--line);border-radius:7px;overflow:hidden}
+.seg button{flex:1;appearance:none;cursor:pointer;background:var(--sunk);border:0;padding:8px 5px;
+  font-family:inherit;font-size:12px;font-weight:600;color:var(--dim)}
+.seg button[aria-pressed="true"]{background:var(--accent);color:#fff}
+:where(button,select,input,a):focus-visible{outline:2px solid var(--internal);outline-offset:2px}
+
+.stage{background:var(--sunk);border:1px solid var(--line);border-radius:9px;padding:16px}
+.stage-h{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:12px}
+.stage-h .k{font-family:var(--mono);font-size:10.5px;color:var(--faint)}
+
+.tbl-w{overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);
+  font-weight:500;padding:9px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+th.r,td.r{text-align:right}
+td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:0}
+td.num{font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+td.int{color:var(--internal);font-weight:600}
+tfoot td{border-top:2px solid var(--line2);font-weight:600;background:var(--sunk)}
+td code{font-family:var(--mono);font-size:11.5px;background:var(--sunk);padding:2px 6px;border-radius:4px}
+.pill{display:inline-block;font-family:var(--mono);font-size:10px;font-weight:600;padding:3px 8px;border-radius:999px;white-space:nowrap}
+.pill.ok{background:color-mix(in srgb,var(--ok) 15%,transparent);color:var(--ok)}
+.pill.no{background:color-mix(in srgb,var(--bad) 15%,transparent);color:var(--bad)}
+.pill.mid{background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--warn)}
+.pill.int{background:color-mix(in srgb,var(--internal) 16%,transparent);color:var(--internal)}
+
+.totals{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:1px;background:var(--line);
+  border:1px solid var(--line);border-radius:8px;overflow:hidden;margin-top:14px}
+.tot{background:var(--surface);padding:13px 15px}
+.tot .l{font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);display:block;margin-bottom:5px}
+.tot .v{font-family:var(--mono);font-size:21px;font-weight:600;font-variant-numeric:tabular-nums;display:block;letter-spacing:-.02em}
+.tot .s{font-size:11px;color:var(--dim);display:block;margin-top:3px}
+.tot.int .v{color:var(--internal)}
+.tot.cust .v{color:var(--ok)}
+
+.cmp{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media (max-width:860px){ .cmp{grid-template-columns:1fr} }
+.arch{background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:15px 16px}
+.arch.bad{border-left:3px solid var(--bad)} .arch.good{border-left:3px solid var(--ok)}
+.arch h4{font-size:14px;font-weight:700;margin:0 0 4px}
+.arch .sub{font-size:12px;color:var(--dim);margin:0 0 12px}
+.code{font-family:var(--mono);font-size:11.5px;line-height:1.6;background:var(--sunk);border-radius:6px;
+  padding:11px 13px;overflow-x:auto;white-space:pre;margin:0 0 10px}
+.k-key{color:var(--accent)} .k-leak{color:var(--bad);font-weight:600} .k-com{color:var(--faint)}
+.verd{font-size:12.5px;margin:0}
+.verd b{display:block;margin-bottom:3px}
+.arch.bad .verd b{color:var(--bad)} .arch.good .verd b{color:var(--ok)}
+
+.steps{display:grid;gap:9px}
+.step{display:grid;grid-template-columns:26px minmax(0,1fr);gap:12px;background:var(--surface);
+  border:1px solid var(--line);border-radius:8px;padding:13px 15px}
+.step .n{font-family:var(--mono);font-size:11.5px;font-weight:600;color:#fff;background:var(--accent);
+  border-radius:5px;display:grid;place-items:center;height:24px}
+.step b{display:block;font-size:13px;margin-bottom:3px}
+.step p{margin:0;font-size:12.5px;color:var(--dim)}
+
+.delta{background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--bad);
+  border-radius:8px;padding:15px 16px;margin-top:13px}
+.delta b{font-family:var(--mono);font-size:25px;font-weight:600;color:var(--bad);display:block;letter-spacing:-.02em}
+.delta span{font-size:12.5px;color:var(--dim);display:block;margin-top:5px}
+
+.foot{border-top:1px solid var(--line);margin-top:32px;padding-block:20px 10px;color:var(--faint);
+  font-family:var(--mono);font-size:10.5px;display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+
+<header class="masthead">
+  <div class="wrap mast-in">
+    <h1 class="brand">MSRP<span>/</span>Only</h1>
+    <span class="tagline">quoting tool, worked through</span>
+    <div class="mast-right">
+      <span class="qno">quote <b id="qNum">VZ-2026-0418</b></span>
+      <button class="tbtn" id="theme" type="button">Theme</button>
+    </div>
+  </div>
+</header>
+
+<div class="rail"><div class="wrap rail-in" role="tablist" aria-label="Sections">
+  <button class="tab" role="tab" aria-selected="true"  aria-controls="p1" id="t1" type="button">Quote<em>01</em></button>
+  <button class="tab" role="tab" aria-selected="false" aria-controls="p2" id="t2" type="button">The leak<em>02</em></button>
+  <button class="tab" role="tab" aria-selected="false" aria-controls="p3" id="t3" type="button">Rules<em>03</em></button>
+  <button class="tab" role="tab" aria-selected="false" aria-controls="p4" id="t4" type="button">The workbook<em>04</em></button>
+  <button class="tab" role="tab" aria-selected="false" aria-controls="p5" id="t5" type="button">Plan<em>05</em></button>
+</div></div>
+
+<main class="wrap">
+
+<!-- ======== 01 QUOTE ======== -->
+<section id="p1" role="tabpanel" aria-labelledby="t1">
+  <div class="lede">
+    <h2>What an employee sees, and what the customer never does</h2>
+    <p>Partner cost and MSRP side by side on screen, which is what you asked for. Everything in amber is
+       internal. The customer PDF is generated from a different path entirely, and tab 02 is about why
+       that distinction is architectural rather than cosmetic.</p>
+  </div>
+
+  <div class="note int"><strong>Example data</strong>
+    <p>Product names are yours. Every price, tier percentage and break is invented, because I have not
+       seen the workbook. The arithmetic is the point, not the figures.</p></div>
+
+  <div class="lab">
+    <div class="panel">
+      <h3>Build the quote</h3>
+      <div class="ctl">
+        <div class="ctl-h"><label for="tier">Partner tier</label></div>
+        <select id="tier">
+          <option value="msrp">MSRP, no partner</option>
+          <option value="bronze">Bronze</option>
+          <option value="silver" selected>Silver</option>
+          <option value="gold">Gold</option>
+        </select>
+      </div>
+      <div class="ctl">
+        <div class="ctl-h"><label for="ctrlQ">Door/Gate Controller</label><output id="ctrlQO">14</output></div>
+        <input type="range" id="ctrlQ" min="0" max="60" step="1" value="14">
+      </div>
+      <div class="ctl">
+        <div class="ctl-h"><label for="readQ">Long Range BLE Reader</label><output id="readQO">8</output></div>
+        <input type="range" id="readQ" min="0" max="60" step="1" value="8">
+      </div>
+      <div class="ctl">
+        <div class="ctl-h"><label for="leverQ">Entegrity Lever Set</label><output id="leverQO">22</output></div>
+        <input type="range" id="leverQ" min="0" max="60" step="1" value="22">
+      </div>
+      <div class="ctl">
+        <div class="ctl-h"><label for="keyQ">SmartKeys, packs of 10</label><output id="keyQO">6</output></div>
+        <input type="range" id="keyQ" min="0" max="40" step="1" value="6">
+      </div>
+      <div class="ctl">
+        <div class="ctl-h"><label for="finish">Finish on locksets</label></div>
+        <select id="finish">
+          <option value="0">Standard, included</option>
+          <option value="4500" selected>Satin chrome, +$45</option>
+          <option value="6500">Oil-rubbed bronze, +$65</option>
+          <option value="12000">Custom finish, +$120</option>
+        </select>
+      </div>
+      <div class="ctl">
+        <div class="ctl-h"><label for="term">Service term</label></div>
+        <select id="term">
+          <option value="12">12 months</option>
+          <option value="24">24 months</option>
+          <option value="36" selected>36 months</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="stage">
+      <div class="stage-h"><h3>Quote lines</h3><span class="k" id="tierNote">Silver</span></div>
+      <div class="tbl-w"><table>
+        <thead><tr>
+          <th>Line</th><th class="r">Qty</th><th class="r">MSRP ea</th>
+          <th class="r">Partner ea</th><th class="r">MSRP total</th><th class="r">Partner total</th>
+        </tr></thead>
+        <tbody id="lines"></tbody>
+        <tfoot id="foot"></tfoot>
+      </table></div>
+
+      <div class="totals">
+        <div class="tot cust"><span class="l">Customer sees</span><span class="v" id="tMsrp">$0</span><span class="s">MSRP, on the PDF</span></div>
+        <div class="tot int"><span class="l">Partner cost</span><span class="v" id="tPartner">$0</span><span class="s">internal only, never exported</span></div>
+        <div class="tot"><span class="l">Margin</span><span class="v" id="tMargin">$0</span><span class="s" id="tMarginPct">0%</span></div>
+        <div class="tot"><span class="l">Quote number</span><span class="v" id="tQno" style="font-size:16px">VZ-2026-0418</span><span class="s">sequential, never reused</span></div>
+      </div>
+
+      <div class="note" style="margin:14px 0 0"><strong>On quote numbers</strong>
+        <p>Sequential and unique means a counter that survives two employees pressing the button at the same
+           second. A database row with a lock, not a timestamp and not a random string, because two
+           identical quote numbers in a customer's inbox is the one bug nobody forgives.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ======== 02 THE LEAK ======== -->
+<section id="p2" role="tabpanel" aria-labelledby="t2" hidden>
+  <div class="lede">
+    <h2>"Partner costs must never appear" is an architecture decision</h2>
+    <p>Hiding the column in the template is the obvious reading, and it is the one that leaks. A PDF keeps
+       its text layer whether or not the text is visible, and anyone can select it, copy it, or open the
+       file in a text editor.</p>
+  </div>
+
+  <div class="cmp">
+    <div class="arch bad">
+      <h4>What usually gets built</h4>
+      <p class="sub">One endpoint, both prices, customer column hidden at render time.</p>
+      <p class="code"><span class="k-com">// what the browser receives</span>
+{
+  <span class="k-key">"line"</span>: "Entegrity Lever Set",
+  <span class="k-key">"qty"</span>: 22,
+  <span class="k-key">"msrp"</span>: 62500,
+  <span class="k-leak">"partnerCost": 48750</span>
+}
+
+<span class="k-com">// customer PDF template</span>
+&lt;td <span class="k-leak">style="display:none"</span>&gt;
+  $487.50
+&lt;/td&gt;</p>
+      <p class="verd"><b>The number ships anyway</b>
+        It is in the page source, in the network tab, and in the generated PDF's text layer. Select-all and
+        paste into a text editor and there it is. Nothing warns you, and the PDF looks correct.</p>
+    </div>
+
+    <div class="arch good">
+      <h4>What I would build</h4>
+      <p class="sub">Two paths. The customer path never holds the number at any point.</p>
+      <p class="code"><span class="k-com">// customer PDF request</span>
+POST /quote/<span class="k-key">123</span>/customer.pdf
+
+<span class="k-com">// server-side query, MSRP only</span>
+SELECT line, qty, msrp
+  FROM quote_lines
+ WHERE quote_id = 123
+
+<span class="k-com">// partner cost is a separate</span>
+<span class="k-com">// query, used only by the</span>
+<span class="k-com">// internal screen</span></p>
+      <p class="verd"><b>There is nothing to leak</b>
+        The PDF is rendered server-side from a result set that never contained partner cost. No hidden
+        element, no client-side maths, no stripping step that somebody can forget.</p>
+    </div>
+  </div>
+
+  <div class="steps" style="margin-top:18px">
+    <div class="step"><span class="n">1</span><div><b>The customer PDF is built on the server, never in the browser</b>
+      <p>Client-side PDF generation needs the data in the browser to build the file. That alone puts partner
+         cost one developer-tools tab away from the customer.</p></div></div>
+    <div class="step"><span class="n">2</span><div><b>Separate query, not a filtered object</b>
+      <p>Fetching everything and deleting fields before rendering works until someone adds a field. A query
+         that cannot return the column cannot leak the column.</p></div></div>
+    <div class="step"><span class="n">3</span><div><b>Metadata gets cleared too</b>
+      <p>PDF producer strings, document properties and any template comments. Small, and the sort of thing
+         that shows up in a security review long after launch.</p></div></div>
+    <div class="step"><span class="n">4</span><div><b>An automated test that reads the finished file</b>
+      <p>Part of the handover: a test that generates a customer PDF, extracts its full text layer, and fails
+         if any partner figure from that quote appears anywhere in it. It runs on every change, so the
+         guarantee survives the next developer.</p></div></div>
+  </div>
+
+  <div class="note good" style="margin-top:18px"><strong>How you verify it yourself</strong>
+    <p>Open any customer PDF the system produces, press select-all, paste into a text editor, and read what
+       comes out. That is the whole acceptance test, and you can run it without me.</p></div>
+</section>
+
+<!-- ======== 03 RULES ======== -->
+<section id="p3" role="tabpanel" aria-labelledby="t3" hidden>
+  <div class="lede">
+    <h2>Everything priced is a row an administrator can edit</h2>
+    <p>You asked to change prices, service rates, discounts and pricing rules without a developer. That only
+       holds if the rules live in data rather than in code, which is a decision made at the start or not
+       at all.</p>
+  </div>
+
+  <div class="tbl-w"><table>
+    <thead><tr><th>Table</th><th>What the admin edits</th><th>Why it is data, not code</th></tr></thead>
+    <tbody>
+      <tr><td><b>Products</b></td><td><code>sku</code> <code>name</code> <code>msrp</code> <code>active</code></td>
+        <td>New products and price changes are the most common edit. Hardcoding these guarantees you call a developer every quarter.</td></tr>
+      <tr><td><b>Partner tiers</b></td><td><code>tier</code> <code>discount_pct</code></td>
+        <td>Bronze, Silver, Gold as rows. Adding a fourth tier becomes an admin task rather than a release.</td></tr>
+      <tr><td><b>Quantity breaks</b></td><td><code>product</code> <code>min_qty</code> <code>type</code> <code>value</code></td>
+        <td><code>type</code> is flat or percent, because your workbook may use both and they behave differently. See tab 04.</td></tr>
+      <tr><td><b>Finishes</b></td><td><code>name</code> <code>upcharge</code> <code>applies_to</code></td>
+        <td>Upcharge per unit, and which products it is offered on.</td></tr>
+      <tr><td><b>Services</b></td><td><code>name</code> <code>rate</code> <code>unit</code> <code>term_months</code></td>
+        <td>Recurring rates change independently of hardware and usually more often.</td></tr>
+      <tr><td><b>Rule order</b></td><td><code>step</code> <code>operation</code></td>
+        <td>The sequence discounts apply in, as editable rows. This is the one most systems bury in code, and it is the one that silently changes every total.</td></tr>
+      <tr><td><b>Settings</b></td><td><code>rounding</code> <code>quote_prefix</code> <code>terms_text</code></td>
+        <td>Including where rounding happens, which has to match the workbook exactly.</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="note bad" style="margin-top:18px"><strong>What stays locked</strong>
+    <p>You said no employee price overrides and no additional discounts. That means the quote screen has no
+       editable price field at all, rather than a field that validates. A control an employee cannot reach
+       is the only one that cannot be worked around, and it also keeps every quote reproducible from its
+       inputs.</p></div>
+
+  <div class="note" style="margin-top:14px"><strong>Two logins</strong>
+    <p>One shared employee login and a separate administrator login, as you specified. Worth knowing the
+       trade-off: a shared account means a quote cannot be attributed to a person beyond the prepared-by
+       field they type themselves. That is fine for now and awkward later, so the schema records a user id
+       from day one even though the login is shared. If you ever move to individual accounts, the history
+       is already there.</p></div>
+</section>
+
+<!-- ======== 04 THE WORKBOOK ======== -->
+<section id="p4" role="tabpanel" aria-labelledby="t4" hidden>
+  <div class="lede">
+    <h2>You already said the spreadsheet has inconsistencies</h2>
+    <p>That line in your brief is the most useful sentence in it. Here is the shape those usually take, and
+       why finding them is milestone one rather than something discovered during build.</p>
+  </div>
+
+  <div class="lab">
+    <div class="panel">
+      <h3>Two defensible answers</h3>
+      <div class="ctl">
+        <div class="ctl-h"><label>Discount order</label></div>
+        <div class="seg">
+          <button id="ordA" aria-pressed="true" type="button">Qty, then tier</button>
+          <button id="ordB" aria-pressed="false" type="button">Tier, then qty</button>
+        </div>
+      </div>
+      <div class="ctl">
+        <div class="ctl-h"><label>Rounding point</label></div>
+        <div class="seg">
+          <button id="rndA" aria-pressed="true" type="button">Each line</button>
+          <button id="rndB" aria-pressed="false" type="button">On total</button>
+        </div>
+      </div>
+      <div class="ctl">
+        <div class="ctl-h"><label for="wQty">Quantity</label><output id="wQtyO">20</output></div>
+        <input type="range" id="wQty" min="1" max="60" step="1" value="20">
+      </div>
+      <div class="note" style="margin:15px 0 0"><strong>Neither is wrong</strong>
+        <p>Both orderings are defensible accounting. Only one matches your workbook, and if I guess, every
+           number in the new system is subtly off and nobody notices for a month.</p></div>
+    </div>
+
+    <div class="stage">
+      <div class="stage-h"><h3>Same inputs, two results</h3><span class="k">list $500, $25 per-unit break at 10+, Gold 25%</span></div>
+      <div class="tbl-w"><table>
+        <thead><tr><th>Method</th><th class="r">Unit</th><th class="r">Line total</th></tr></thead>
+        <tbody>
+          <tr><td>Quantity break first, then tier</td><td class="num r" id="wA">$0.00</td><td class="num r" id="wAT">$0.00</td></tr>
+          <tr><td>Tier first, then quantity break</td><td class="num r" id="wB">$0.00</td><td class="num r" id="wBT">$0.00</td></tr>
+        </tbody>
+      </table></div>
+      <div class="delta"><b id="wDelta">$0.00</b>
+        <span id="wDeltaNote">difference on this one line, from a rule nobody wrote down</span></div>
+
+      <div class="steps" style="margin-top:16px">
+        <div class="step"><span class="n">1</span><div><b>Tier boundaries</b>
+          <p>At exactly ten units, does the break apply? Workbooks routinely use <code>&gt;</code> in one
+             formula and <code>&gt;=</code> in another, and the two disagree on precisely the quantities
+             customers order most.</p></div></div>
+        <div class="step"><span class="n">2</span><div><b>Where rounding happens</b>
+          <p>Round each line then sum, or sum then round once. On a long quote the two differ by cents,
+             which is enough to fail a comparison against the workbook and enough to annoy accounting.</p></div></div>
+        <div class="step"><span class="n">3</span><div><b>Flat versus percentage</b>
+          <p>A flat per-unit break and a percentage tier give different answers depending on order, which is
+             what the panel shows. Two percentages would not, which is why this one hides so well.</p></div></div>
+        <div class="step"><span class="n">4</span><div><b>Values typed where rules belong</b>
+          <p>A price pasted into a cell that should be a lookup. It works until the lookup changes and that
+             one cell does not, and nothing flags it.</p></div></div>
+        <div class="step"><span class="n">5</span><div><b>Custom finishes and SmartKeys</b>
+          <p>Your brief names both as test cases. Is a finish upcharge discountable? Are SmartKeys priced per
+             pack or per credential, and do they attract the quantity break? These have answers; they just
+             are not written down anywhere yet.</p></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note good" style="margin-top:18px"><strong>How milestone one ends</strong>
+    <p>A written rules document with every one of these decided by you, and a test file of agreed worked
+       examples with expected outputs to the cent. That file becomes the automated test suite, so the
+       system can be proven against your own numbers rather than declared correct.</p></div>
+</section>
+
+<!-- ======== 05 PLAN ======== -->
+<section id="p5" role="tabpanel" aria-labelledby="t5" hidden>
+  <div class="lede">
+    <h2>Five milestones, $4,375 fixed</h2>
+    <p>Priced fixed, as you asked, with the workbook audit first because everything downstream depends on
+       it. You can stop after milestone one with a rules document you own, whatever you decide about the
+       rest. Three weeks means roughly sixty hours a week on this, and it holds as long as milestone
+       approvals come back inside a day. Your brief allows two to three months, so there is slack if
+       they do not.</p>
+  </div>
+
+  <div class="tbl-w"><table>
+    <thead><tr><th>Milestone</th><th>What you get</th><th class="r">Hours</th><th class="r">Fee</th></tr></thead>
+    <tbody>
+      <tr><td><b>1. Workbook audit and rules</b></td>
+        <td>Every calculation traced, inconsistencies listed with options, a written rules document you approve, and a file of agreed worked examples with expected outputs</td>
+        <td class="num r">20</td><td class="num r">$500</td></tr>
+      <tr><td><b>2. Data model and admin</b></td>
+        <td>Products, tiers, breaks, finishes, services, rule order and settings as editable tables, with the two logins</td>
+        <td class="num r">30</td><td class="num r">$750</td></tr>
+      <tr><td><b>3. Pricing engine and tests</b></td>
+        <td>The engine, plus an automated test suite running your agreed examples. Milestone closes when every example matches to the cent.</td>
+        <td class="num r">35</td><td class="num r">$875</td></tr>
+      <tr><td><b>4. Quote screen and PDFs</b></td>
+        <td>The quote builder, quote numbering, the new customer quote PDF design for your approval, the Bronze/Silver/Gold/MSRP price list PDF, and the leak test from tab 02</td>
+        <td class="num r">60</td><td class="num r">$1,500</td></tr>
+      <tr><td><b>5. Install, docs, training</b></td>
+        <td>Installed on your hosting, source code handed over, written documentation, administrator training call, then 90 days of bug fixes</td>
+        <td class="num r">30</td><td class="num r">$750</td></tr>
+    </tbody>
+    <tfoot><tr><td><b>Total</b></td><td>3 weeks, well inside your 2 to 3 month target</td><td class="num r">175</td><td class="num r">$4,375</td></tr></tfoot>
+  </table></div>
+
+  <div class="cmp" style="margin-top:18px">
+    <div class="arch good">
+      <h4>Recurring costs: none</h4>
+      <p class="sub">You asked to have this disclosed.</p>
+      <p class="verd"><b>No paid plugins, no licences, no per-document fees</b>
+        PDF generation uses a pure-PHP library (Dompdf, LGPL, free). WordPress is GPL, so that is clean to
+        ship. No cloud PDF service, which would charge per document forever. No premium plugin
+        dependencies. The only ongoing cost is the hosting you already pay for.</p>
+    </div>
+    <div class="arch">
+      <h4>Hosting: two things to confirm</h4>
+      <p class="sub">Both are usually fine, both are worth checking before we start.</p>
+      <p class="verd"><b>PHP version and memory limit</b>
+        PDF generation is the one memory-hungry operation here. A long price list on a tight memory limit is
+        the classic failure. I would rather check your actual limits in week one than discover it at
+        milestone four. No server binaries are needed, which is why I would not use a wkhtmltopdf-based
+        approach on shared hosting.</p>
+    </div>
+  </div>
+
+  <div class="note" style="margin-top:18px"><strong>Excluded, so it is in writing</strong>
+    <p>Saved quotes, reopening or duplicating quotes, emailing from the system, and mobile layouts, exactly
+       as your brief scopes them out. Also excluded: data migration of historic quotes, integration with any
+       CRM or accounting system, and the writing of your terms text, which I will place but not author.
+       Ongoing support beyond the 90 days is quoted separately once we both know what the system looks
+       like.</p></div>
+
+  <div class="note good" style="margin-top:14px"><strong>Calls</strong>
+    <p>I am six hours ahead of US Eastern and I work your hours rather than mine, so a 9am or a 4pm Eastern
+       call is equally fine. You would not be waiting overnight for an answer.</p></div>
+</section>
+
+</main>
+
+<footer class="wrap foot">
+  <span>MSRP Only &middot; prepared for VIZpin</span>
+  <span>your product names, invented prices</span>
+</footer>
+
+<script>
+(function(){
+  "use strict";
+  var $=function(s){return document.querySelector(s)};
+  var usd=function(c){ return '$'+(c/100).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}); };
+  var usd0=function(c){ return '$'+Math.round(c/100).toLocaleString('en-US'); };
+
+  try{ var st=localStorage.getItem('vz-theme'); if(st) document.documentElement.setAttribute('data-theme',st); }catch(e){}
+  $('#theme').addEventListener('click',function(){
+    var cur=document.documentElement.getAttribute('data-theme');
+    var dark = cur ? cur==='dark' : matchMedia('(prefers-color-scheme:dark)').matches;
+    var nx=dark?'light':'dark';
+    document.documentElement.setAttribute('data-theme',nx);
+    try{ localStorage.setItem('vz-theme',nx); }catch(e){}
+  });
+
+  var tabs=[].slice.call(document.querySelectorAll('.tab'));
+  tabs.forEach(function(t){
+    t.addEventListener('click',function(){
+      tabs.forEach(function(o){
+        var sel=o===t;
+        o.setAttribute('aria-selected',sel?'true':'false');
+        document.getElementById(o.getAttribute('aria-controls')).hidden=!sel;
+      });
+    });
+  });
+
+  /* ---------------- 01 quote. all money in integer cents ---------------- */
+  var TIERS={ msrp:0, bronze:0.15, silver:0.22, gold:0.28 };
+  var PRODUCTS=[
+    { id:'ctrlQ',  name:'Door/Gate Controller',   msrp:49500, finish:false },
+    { id:'readQ',  name:'Long Range BLE Reader',  msrp:38500, finish:false },
+    { id:'leverQ', name:'Entegrity Lever Set',    msrp:62500, finish:true  },
+    { id:'keyQ',   name:'SmartKeys, pack of 10',  msrp:12000, finish:false }
+  ];
+  var BREAKS=[ {min:25, flat:5000}, {min:10, flat:2500} ];   // per unit, flat
+  var SERVICE_RATE=900;                                       // per door per month
+
+  function breakFor(q){
+    for(var i=0;i<BREAKS.length;i++){ if(q>=BREAKS[i].min) return BREAKS[i].flat; }
+    return 0;
+  }
+
+  function quote(){
+    var tierKey=$('#tier').value, tierPct=TIERS[tierKey];
+    var finish=+$('#finish').value, term=+$('#term').value;
+    var rows='', msrpTot=0, partTot=0, doors=0;
+
+    PRODUCTS.forEach(function(p){
+      var q=+$('#'+p.id).value;
+      $('#'+p.id+'O').textContent=q;
+      if(q===0) return;
+      var unitMsrp = p.msrp + (p.finish?finish:0);
+      // quantity break applies first, then the partner tier. that ordering is
+      // exactly what tab 04 says must be confirmed against the workbook.
+      var afterBreak = unitMsrp - breakFor(q);
+      var unitPart = Math.round(afterBreak * (1-tierPct));
+      var lineMsrp = unitMsrp*q, linePart = unitPart*q;
+      msrpTot+=lineMsrp; partTot+=linePart;
+      if(p.id==='ctrlQ'||p.id==='leverQ') doors+=q;
+      rows+='<tr><td>'+p.name+(p.finish&&finish?' <span class="pill mid">finish</span>':'')+
+            (breakFor(q)?' <span class="pill ok">break</span>':'')+'</td>'+
+            '<td class="num r">'+q+'</td><td class="num r">'+usd(unitMsrp)+'</td>'+
+            '<td class="num r int">'+usd(unitPart)+'</td>'+
+            '<td class="num r">'+usd(lineMsrp)+'</td>'+
+            '<td class="num r int">'+usd(linePart)+'</td></tr>';
+    });
+
+    if(doors>0){
+      var svcMsrp=SERVICE_RATE*doors*term;
+      var svcPart=Math.round(svcMsrp*(1-tierPct));
+      msrpTot+=svcMsrp; partTot+=svcPart;
+      rows+='<tr><td>VIZpin service, '+doors+' doors x '+term+' months <span class="pill int">recurring</span></td>'+
+            '<td class="num r">'+doors+'</td><td class="num r">'+usd(SERVICE_RATE*term)+'</td>'+
+            '<td class="num r int">'+usd(Math.round(SERVICE_RATE*term*(1-tierPct)))+'</td>'+
+            '<td class="num r">'+usd(svcMsrp)+'</td>'+
+            '<td class="num r int">'+usd(svcPart)+'</td></tr>';
+    }
+
+    $('#lines').innerHTML = rows || '<tr><td colspan="6" style="color:var(--faint)">No lines yet. Add quantities on the left.</td></tr>';
+    $('#foot').innerHTML = '<tr><td colspan="4">Totals</td><td class="num r">'+usd(msrpTot)+
+                           '</td><td class="num r int">'+usd(partTot)+'</td></tr>';
+    $('#tierNote').textContent = tierKey==='msrp' ? 'no partner tier' : tierKey.charAt(0).toUpperCase()+tierKey.slice(1);
+    $('#tMsrp').textContent=usd0(msrpTot);
+    $('#tPartner').textContent=usd0(partTot);
+    $('#tMargin').textContent=usd0(msrpTot-partTot);
+    $('#tMarginPct').textContent = msrpTot? Math.round((msrpTot-partTot)/msrpTot*100)+'% of MSRP' : '0%';
+  }
+  ['#tier','#finish','#term'].concat(PRODUCTS.map(function(p){return '#'+p.id;}))
+    .forEach(function(s){ $(s).addEventListener('input',quote); $(s).addEventListener('change',quote); });
+  quote();
+
+  /* ---------------- 04 workbook: two defensible answers ---------------- */
+  var LIST=50000, FLAT=2500, TIER=0.25;
+  var ordA=true;
+  function work(){
+    var q=+$('#wQty').value;
+    $('#wQtyO').textContent=q;
+    var brk = q>=10 ? FLAT : 0;
+    var a = Math.round((LIST-brk)*(1-TIER));   // break first, then tier
+    var b = Math.round(LIST*(1-TIER)) - brk;   // tier first, then break
+    $('#wA').textContent=usd(a);  $('#wAT').textContent=usd(a*q);
+    $('#wB').textContent=usd(b);  $('#wBT').textContent=usd(b*q);
+    var d=Math.abs(a-b)*q;
+    $('#wDelta').textContent=usd(d);
+    $('#wDeltaNote').textContent = d===0
+      ? 'identical here, because below ten units no break applies. push the quantity up.'
+      : 'difference on this one line, from a rule nobody wrote down';
+    $('#ordA').setAttribute('aria-pressed',ordA?'true':'false');
+    $('#ordB').setAttribute('aria-pressed',ordA?'false':'true');
+  }
+  $('#wQty').addEventListener('input',work);
+  $('#ordA').addEventListener('click',function(){ ordA=true; work(); });
+  $('#ordB').addEventListener('click',function(){ ordA=false; work(); });
+  var rndA=true;
+  $('#rndA').addEventListener('click',function(){ rndA=true; $('#rndA').setAttribute('aria-pressed','true'); $('#rndB').setAttribute('aria-pressed','false'); });
+  $('#rndB').addEventListener('click',function(){ rndA=false; $('#rndB').setAttribute('aria-pressed','true'); $('#rndA').setAttribute('aria-pressed','false'); });
+  work();
+})();
+</script>
+
+</body>
+</html>
